@@ -2,15 +2,14 @@ import asyncio
 import logging
 import sys
 from aiohttp import web
-# Removed signal and functools - not needed for this approach
 
 import simplematrixbotlib as botlib
-# Assuming these imports work based on your project structure
 from . import config as config_module
 from . import commands
-from . import webhooks # Keep this for the actual Radarr webhook logic
+from . import webhooks # Imports handle_radarr_webhook, handle_sonarr_webhook (if added above)
 
 # --- Logging Setup ---
+# ... (logging setup remains the same) ...
 log_level = logging.INFO
 logging.basicConfig(
     level=log_level,
@@ -23,7 +22,8 @@ logging.getLogger("urllib3").setLevel(logging.WARNING)
 logging.getLogger("nio").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
-# --- Simple Health Check Handlers ---
+
+# --- Simple Health Check Handlers (remain the same) ---
 async def handle_healthz(request: web.Request):
     """Liveness probe: Checks if the web server process is running."""
     logger.debug("Received /healthz request")
@@ -31,14 +31,12 @@ async def handle_healthz(request: web.Request):
 
 async def handle_readyz(request: web.Request):
     """Readiness probe: Checks if the web server process has started."""
-    # Basic check: If the server is running, consider it ready for K8s purposes.
-    # More complex checks involving bot state could be added later if needed.
     logger.debug("Received /readyz request")
     return web.Response(status=200, text="Ready")
 
+
 # --- Main Application ---
 async def main():
-    # Keep track of the web server task
     web_server_task = None
     webhook_runner = None
     site = None
@@ -61,14 +59,20 @@ async def main():
 
     # --- Setup Webhook Server ---
     webhook_app = web.Application()
-    # Pass bot/config for the actual Radarr webhook handler
     webhook_app['bot'] = bot
     webhook_app['config'] = config
 
     # --- Add Routes ---
-    # Add the actual Radarr webhook route (from webhooks.py)
-    webhooks.setup_webhook_routes(webhook_app) # Ensure this ONLY adds the /webhook/radarr route now
-    # Add the health check routes
+    # Radarr Route (use handler from webhooks.py)
+    webhook_app.router.add_post('/webhook/radarr', webhooks.handle_radarr_webhook)
+    logger.info("Registered Radarr webhook route: /webhook/radarr (POST)")
+
+    # --- ADD Sonarr Route (use handler from webhooks.py) ---
+    webhook_app.router.add_post('/webhook/sonarr', webhooks.handle_sonarr_webhook)
+    logger.info("Registered Sonarr webhook route: /webhook/sonarr (POST)")
+    # --- END ADD ---
+
+    # Health check routes
     webhook_app.router.add_get('/healthz', handle_healthz)
     logger.info("Registered liveness probe route: /healthz (GET)")
     webhook_app.router.add_get('/readyz', handle_readyz)
@@ -82,27 +86,21 @@ async def main():
 
     # --- Start Webhook Server in Background & Run Bot ---
     try:
-        # Start the webhook server as a background task
         logger.info(f"Attempting to start web server on http://{config.webhook_host}:{config.webhook_port}...")
-        await site.start() # Start the site
+        await site.start()
         logger.info("Web server started successfully.")
-        # --- NOTE: site.start() doesn't return a task directly.
-        # The server runs in the background managed by the runner.
-        # We just need to ensure cleanup happens.
 
         logger.info("Starting Matrix bot main loop (blocking)...")
-        # This will block until the bot stops or is interrupted
-        await bot.main() # Use the original blocking call
+        await bot.main()
 
     except KeyboardInterrupt:
         logger.info("KeyboardInterrupt received, stopping bot and web server...")
     except Exception as e:
         logger.exception(f"An error occurred during main execution: {e}")
     finally:
+        # ... (cleanup logic remains the same) ...
         logger.info("Initiating shutdown sequence...")
 
-        # 1. Stop the bot (implicitly handled by bot.main() exiting or erroring)
-        #    Add explicit close just in case.
         logger.info("Attempting to close Matrix client session...")
         if bot and bot.api and bot.api.async_client:
              try:
@@ -113,7 +111,6 @@ async def main():
         else:
              logger.warning("Matrix client session was not available for closing.")
 
-        # 2. Stop the web server
         logger.info("Cleaning up webhook server runner...")
         if webhook_runner:
             try:
@@ -124,12 +121,14 @@ async def main():
         else:
             logger.warning("Webhook runner was not initialized, skipping cleanup.")
 
+
 if __name__ == "__main__":
+    # ... (__main__ execution block remains the same) ...
     logger.info("Starting bot application...")
     try:
         asyncio.run(main())
     except Exception as global_error:
         logger.exception(f"Unhandled exception in global execution scope: {global_error}")
-        sys.exit(1) # Exit with error on unhandled exception
+        sys.exit(1)
     finally:
         logger.info("Application finished.")
