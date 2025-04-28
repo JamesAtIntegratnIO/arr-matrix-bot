@@ -1,0 +1,16 @@
+{
+  "matrix": {
+    "homeserver": "https://your.matrix.server.com",
+    "user_id": "@your_bot_username:your.matrix.server.com",
+    "password": "YOUR_MATRIX_BOT_PASSWORD",
+    "room_alias": "#your-plex-room:your.matrix.server.com"
+  },
+  "tvdb": {
+    "api_key": "YOUR_THETVDB.COM_API_KEY_V4",
+    "base_url": "https://api4.thetvdb.com/v4"
+  },
+  "script": {
+    "homedir": "/config/.matrix-tautulli",
+    "disable_tls_verify": false
+  }
+}

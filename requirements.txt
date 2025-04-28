@@ -1,0 +1,12 @@
+# HTTP requests (might be needed for future commands)
+requests>=2.0.0
+
+# YAML configuration file parsing
+PyYAML>=5.1
+
+# TOML configuration file parsing (required for Python < 3.11)
+# Install if using Python < 3.11 AND using a .toml config file
+tomli>=1.1.0; python_version < "3.11"
+
+# Note: urllib3 is typically installed as a dependency of 'requests'.
+simplematrixbotlib
