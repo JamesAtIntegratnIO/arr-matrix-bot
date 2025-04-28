@@ -6,15 +6,13 @@ from aiohttp import web
 import simplematrixbotlib as botlib
 from . import config as config_module
 from . import commands
-from . import webhooks # Imports handle_radarr_webhook, handle_sonarr_webhook
+from . import webhooks
 
-# --- *** Import Status and Matrix Utils *** ---
+# Import Status and Matrix Utils
 from .utils import status_utils
 from .utils import matrix_utils
-# --- *** END IMPORT *** ---
 
-# --- Logging Setup ---
-# ... (logging setup remains the same) ...
+# Logging Setup
 log_level = logging.INFO
 logging.basicConfig(
     level=log_level,
@@ -28,7 +26,7 @@ logging.getLogger("nio").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 
-# --- Simple Health Check Handlers (remain the same) ---
+# Health Check Handlers
 async def handle_healthz(request: web.Request):
     """Liveness probe: Checks if the web server process is running."""
     logger.debug("Received /healthz request")
@@ -40,70 +38,76 @@ async def handle_readyz(request: web.Request):
     return web.Response(status=200, text="Ready")
 
 
-# --- Main Application ---
+# Main Application
 async def main():
     webhook_runner = None
     site = None
 
-    # --- Check Config ---
+    # Check Config
     if not config_module.creds or not config_module.config_instance:
         logger.critical("Configuration or credentials failed to load. Exiting.")
         sys.exit(1)
-    config = config_module.config_instance # Get loaded config instance
+    config = config_module.config_instance
     logger.info("Configuration loaded.")
 
-    # --- Create Bot ---
-    bot = botlib.Bot(config_module.creds) # Use loaded creds
+    # Create Bot
+    bot = botlib.Bot(config_module.creds)
     logger.info("Matrix Bot instance created.")
 
-    # --- Register Bot Commands ---
+    # Register Bot Commands
     prefix = config.command_prefix
-    commands.register_all(bot, config, prefix) # Pass loaded config
+    commands.register_all(bot, config, prefix)
     logger.info(f"Registered bot commands with prefix '{prefix}'.")
 
-    # --- *** ADD STARTUP STATUS CHECK ROUTINE *** ---
-    async def run_startup_checks():
+    # --- STARTUP STATUS CHECK ROUTINE (Using target_room_id) ---
+    async def run_startup_checks(_unused_arg):
         logger.info("Startup routine initiated...")
-        # Use the config object loaded in main()
-        if not config.matrix_startup_room_id:
-            logger.warning("No matrix_startup_room_id configured. Skipping startup status report.")
+        # Use config.target_room_id instead of matrix_startup_room_id
+        if not config.target_room_id:
+            logger.warning("No target_room_id configured. Skipping startup status report.")
             return
 
         # Perform checks
         try:
-            # Pass the bot instance and the loaded config
             status_results = await status_utils.check_all_services(bot, config)
             plain_report, html_report = status_utils.format_status_report(status_results)
 
-            logger.info(f"Sending startup status report to {config.matrix_startup_room_id}")
+            # Use config.target_room_id for sending the message
+            target_room = config.target_room_id
+            logger.info(f"Sending startup status report to target_room_id: {target_room}")
             await matrix_utils.send_formatted_message(
-                bot, config.matrix_startup_room_id, plain_report, html_report
+                bot, target_room, plain_report, html_report
             )
             logger.info("Startup status report sent successfully.")
         except Exception as e:
             logger.error(f"Failed to perform or send startup status check: {e}", exc_info=True)
             # Attempt to send an error message if possible
             try:
-                 await matrix_utils.send_formatted_message(
-                    bot, config.matrix_startup_room_id,
-                    "Error: Failed to perform startup status checks.",
-                    "<p>Error: Failed to perform startup status checks. Check logs.</p>"
-                 )
+                 # Use config.target_room_id for error reporting too
+                 target_room = config.target_room_id
+                 if target_room: # Only try if target_room_id is set
+                     await matrix_utils.send_formatted_message(
+                        bot, target_room,
+                        "Error: Failed to perform startup status checks.",
+                        "<p>Error: Failed to perform startup status checks. Check logs.</p>"
+                     )
+                 else:
+                     logger.error("Cannot report startup check error: target_room_id is not set.")
             except Exception as report_err:
                  logger.error(f"Failed even to report the startup check error: {report_err}")
 
-    # Register the startup check to run after login
+    # Register the startup check
     bot.listener.on_startup(run_startup_checks)
     logger.info("Registered startup status check routine.")
-    # --- *** END STARTUP STATUS CHECK ROUTINE *** ---
+    # --- END STARTUP STATUS CHECK ROUTINE ---
 
 
-    # --- Setup Webhook Server ---
+    # Setup Webhook Server
     webhook_app = web.Application()
     webhook_app['bot'] = bot
     webhook_app['config'] = config # Pass loaded config to webhook handlers if needed
 
-    # --- Add Routes ---
+    # Add Routes
     # Radarr Route (use handler from webhooks.py)
     webhook_app.router.add_post('/webhook/radarr', webhooks.handle_radarr_webhook)
     logger.info("Registered Radarr webhook route: /webhook/radarr (POST)")
@@ -118,13 +122,15 @@ async def main():
     webhook_app.router.add_get('/readyz', handle_readyz)
     logger.info("Registered readiness probe route: /readyz (GET)")
 
-    # --- Prepare Runner and Site ---
+
+    # Prepare Runner and Site
     webhook_runner = web.AppRunner(webhook_app)
     await webhook_runner.setup()
     site = web.TCPSite(webhook_runner, config.webhook_host, config.webhook_port)
     logger.info("Webhook AppRunner setup complete.")
 
-    # --- Start Webhook Server in Background & Run Bot ---
+
+    # Start Webhook Server & Run Bot
     try:
         logger.info(f"Attempting to start web server on http://{config.webhook_host}:{config.webhook_port}...")
         await site.start()
@@ -138,7 +144,7 @@ async def main():
     except Exception as e:
         logger.exception(f"An error occurred during main execution: {e}")
     finally:
-        # --- Cleanup ---
+        # Cleanup
         logger.info("Initiating shutdown sequence...")
 
         # Close Matrix client session first
@@ -166,7 +172,6 @@ async def main():
         # Note: site.stop() is implicitly handled by runner.cleanup() for TCPSite
 
 if __name__ == "__main__":
-    # ... (__main__ execution block remains the same) ...
     logger.info("Starting bot application...")
     try:
         asyncio.run(main())

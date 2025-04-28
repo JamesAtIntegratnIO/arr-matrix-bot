@@ -1,109 +1,72 @@
 import logging
-from typing import Tuple, Dict, Optional
 import simplematrixbotlib as botlib
-import asyncio # Import asyncio if not already present
+from nio import RoomMessageText, MatrixRoom
 
-# Assuming services modules have appropriate functions
-from ..services import sonarr as sonarr_service
-from ..services import radarr as radarr_service
+# Import your config module structure
 from .. import config as config_module
+# Import the status check utilities AND the message sending utility
+from ..utils import matrix_utils, status_utils
 
 logger = logging.getLogger(__name__)
 
-async def check_matrix_connection(bot: botlib.Bot) -> Tuple[bool, str]:
-    """Checks if the bot can communicate with the Matrix homeserver."""
-    try:
-        # A simple API call to verify connection and token
-        await bot.api.async_client.get_displayname(bot.user_id)
-        logger.info("Matrix connection check successful.")
-        return True, "OK"
-    # Catch more specific exceptions if needed
-    except asyncio.TimeoutError:
-         logger.error("Matrix connection check failed: Timeout")
-         return False, "Failed: Timeout"
-    except Exception as e:
-        logger.error(f"Matrix connection check failed: {e}", exc_info=True)
-        return False, f"Failed: {type(e).__name__}"
+async def _status_command_handler(room: MatrixRoom, message: RoomMessageText, bot: botlib.Bot, config: config_module.MyConfig, prefix: str):
+    """Handles the !status command."""
+    # Ignore messages from the bot itself
+    if message.sender == config.matrix_user:
+        return
 
-async def check_sonarr_connection(config: config_module.MyConfig) -> Tuple[bool, str]:
-    """Checks if Sonarr is reachable and API key is valid using test_sonarr_connection."""
-    if not config.sonarr_url or not config.sonarr_api_key:
-        return False, "Not Configured"
+    command_name = "status"
+    full_command = prefix + command_name
+
+    # Check if the message is exactly the command
+    if not message.body.strip().lower() == full_command:
+        return
+
+    logger.info(f"Received status command from {message.sender} in room {room.room_id}")
+
+    # Perform the checks using the utility function
     try:
-        # *** Use the existing test_sonarr_connection function ***
-        success = await sonarr_service.test_sonarr_connection(
-            config.sonarr_url, config.sonarr_api_key, verify_tls=config.verify_tls
+        status_results = await status_utils.check_all_services(bot, config)
+    except Exception as e:
+        logger.error(f"Unexpected error during status check triggered by command: {e}", exc_info=True)
+        # Use matrix_utils to send error message
+        await matrix_utils.send_formatted_message(
+            bot, room.room_id,
+            "Error: An unexpected error occurred while checking service status.",
+            "<p>Error: An unexpected error occurred while checking service status.</p>"
         )
-        if success:
-            logger.info("Sonarr connection check successful.")
-            return True, "OK"
-        else:
-            # test_sonarr_connection logs details on failure
-            logger.warning("Sonarr connection check failed (test_sonarr_connection returned False).")
-            return False, "Failed" # Keep message simple, logs have details
-    except AttributeError:
-         logger.error("Sonarr service module does not have a 'test_sonarr_connection' async function.")
-         return False, "Check Function Missing"
-    except Exception as e:
-        # Catch errors during the call itself
-        logger.error(f"Sonarr connection check failed with exception: {e}", exc_info=True)
-        return False, f"Error: {type(e).__name__}"
+        return
 
-# --- Add ping_radarr call (will add ping_radarr below) ---
-async def check_radarr_connection(config: config_module.MyConfig) -> Tuple[bool, str]:
-    """Checks if Radarr is reachable and API key is valid using ping_radarr."""
-    if not config.radarr_url or not config.radarr_api_key:
-        return False, "Not Configured"
-    try:
-        # *** We will add ping_radarr to the radarr service module ***
-        success = await radarr_service.ping_radarr(
-            config.radarr_url, config.radarr_api_key, verify_tls=config.verify_tls
-        )
-        if success:
-            logger.info("Radarr connection check successful.")
-            return True, "OK"
-        else:
-            logger.warning("Radarr connection check failed (ping_radarr returned False).")
-            return False, "Failed"
-    except AttributeError:
-         logger.error("Radarr service module does not have a 'ping_radarr' async function.")
-         return False, "Check Function Missing"
-    except Exception as e:
-        logger.error(f"Radarr connection check failed with exception: {e}", exc_info=True)
-        return False, f"Error: {type(e).__name__}"
+    # Format the report using the utility function
+    plain_report, html_report = status_utils.format_status_report(status_results)
 
-# ... (check_all_services and format_status_report remain the same) ...
-async def check_all_services(bot: botlib.Bot, config: config_module.MyConfig) -> Dict[str, Tuple[bool, str]]:
-    """Performs connectivity checks for all configured services."""
-    logger.info("Performing status check for all services...")
-    results = {}
-    results["Matrix"] = await check_matrix_connection(bot)
-    results["Sonarr"] = await check_sonarr_connection(config)
-    results["Radarr"] = await check_radarr_connection(config)
-    # Add other services here if needed
-    logger.info("Finished status check.")
-    return results
+    # Send the report back to the room where the command was issued using matrix_utils
+    await matrix_utils.send_formatted_message(bot, room.room_id, plain_report, html_report)
 
-def format_status_report(status_results: Dict[str, Tuple[bool, str]]) -> Tuple[str, str]:
-    """Formats the status check results into plain text and HTML."""
-    plain_body = "Service Status Report:\n"
-    html_body = "<h3>Service Status Report</h3><ul>"
-    overall_ok = True
+# --- THIS FUNCTION IS REQUIRED by commands/__init__.py ---
+def register(bot: botlib.Bot, config_obj: config_module.MyConfig, prefix: str):
+    """Registers the status command handler with the bot."""
+    # Create a closure to capture bot, config_obj, and prefix for the handler
+    async def handler_wrapper(room, message):
+        try:
+            # Call the actual command logic handler
+            await _status_command_handler(room, message, bot, config_obj, prefix)
+        except Exception as handler_exc:
+            # Log any unhandled exceptions from the command handler itself
+            logger.error(f"Unhandled exception in _status_command_handler: {handler_exc}", exc_info=True)
+            # Try to report a generic error back to the room
+            try:
+                # Use underlying client for simple text message on error
+                await bot.api.async_client.room_send(
+                    room_id=room.room_id,
+                    message_type="m.room.message",
+                    content={ "msgtype": "m.notice", "body": "Sorry, an internal error occurred processing the status command."}
+                )
+            except Exception as report_exc:
+                # Log if even reporting the error fails
+                logger.error(f"Failed to report internal status handler error to room {room.room_id}: {report_exc}")
 
-    for service, (success, message) in status_results.items():
-        emoji = "✅" if success else "❌"
-        plain_body += f"\n{emoji} {service}: {message}"
-        html_body += f"<li>{emoji} <strong>{service}:</strong> {message}</li>"
-        # Treat actual failures or missing check functions as overall failure
-        if not success and message not in ["Not Configured"]:
-            overall_ok = False
-
-    html_body += "</ul>"
-    if overall_ok:
-        plain_body += "\n\nOverall Status: OK"
-        html_body += "<p><strong>Overall Status: OK</strong></p>"
-    else:
-        plain_body += "\n\nOverall Status: Issues Detected"
-        html_body += "<p><strong>Overall Status: Issues Detected</strong></p>"
-
-    return plain_body, html_body
+    # Register the wrapper function to listen for message events
+    bot.listener.on_message_event(handler_wrapper)
+    logger.info(f"Status command '{prefix}status' registered.")
+# --- END OF register FUNCTION ---
