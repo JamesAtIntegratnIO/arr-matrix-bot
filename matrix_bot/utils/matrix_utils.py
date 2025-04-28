@@ -37,6 +37,16 @@ def get_nested(data: dict | list, *keys, default=None):
             return default
     return current
 
+async def send_formatted_message(bot: botlib.Bot, room_id: str, plain_body: str, html_body: str):
+    """Sends a message with plain text body and HTML formatted body."""
+    try:
+        content = {
+            "msgtype": "m.text",
+            "format": "org.matrix.custom.html",
+            "body": plain_body,
+            "formatted_body": html_body
+        }
+        
 async def send_media_info_card(bot, room_id: str, media_data: dict, is_added: bool, config, media_type: str):
     """Sends a formatted card notification to Matrix."""
 
