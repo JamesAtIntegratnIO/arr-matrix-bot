@@ -6,6 +6,11 @@ on:
   push:
     branches: [ main ]
     tags: [ 'v*.*.*' ]
+  # *** Add pull_request trigger ***
+  pull_request:
+    branches: [ main ] # Or whichever branches you accept PRs against
+    types: [ opened, synchronize, reopened ] # Run on PR open, update, reopen
+  # --- Keep workflow_dispatch ---
   workflow_dispatch:
 
 jobs:
@@ -14,11 +19,14 @@ jobs:
 
     permissions:
       contents: read
-      packages: write
+      packages: write # Needed to push to GHCR
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        # *** Fetch tags if needed for semver on non-tag pushes (optional) ***
+        # with:
+        #   fetch-depth: 0 # Fetches all history for all branches and tags
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -38,24 +46,39 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ghcr.io/${{ github.repository }}
-          # --- Keep only the standard multi-arch compatible tags ---
+          # Define tagging strategy based on event type
           tags: |
-            type=schedule
-            type=ref,event=branch  # Will create 'main' and 'latest' (if main is default branch)
+            # For pushes to the main branch
+            type=ref,event=branch,enable=${{ github.ref == format('refs/heads/{0}', 'main') }}
+            # Use 'latest' tag only for the default branch push (assuming main is default)
+            type=raw,value=latest,enable=${{ github.ref == format('refs/heads/{0}', 'main') }}
+
+            # For pull requests (generates pr-NUMBER)
             type=ref,event=pr
-            type=semver,pattern={{version}} # Will create vX.Y.Z
-            type=semver,pattern={{major}}.{{minor}} # Will create vX.Y
-            type=semver,pattern={{major}} # Will create vX
-            type=sha # Will create sha-<shortsha>
-          # --- Removed the non-functional {{arch}} patterns ---
+
+            # For tags (vX.Y.Z, vX.Y, vX)
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+
+            # SHA tag for all pushes/tags (optional, good for specific commit reference)
+            type=sha,enable=${{ github.event_name != 'pull_request' }},prefix=sha-
+            # SHA tag specifically for PRs (optional, prefix with pr-)
+            type=sha,enable=${{ github.event_name == 'pull_request' }},prefix=pr-sha-
+
+            # Manual trigger tag (optional)
+            type=raw,value=manual-${{ github.run_id }},enable=${{ github.event_name == 'workflow_dispatch' }}
+
+            # Schedule tag (if you add a schedule trigger later)
+            # type=schedule,pattern={{date 'YYYYMMDD'}}
 
       - name: Build and push multi-arch Docker image
         uses: docker/build-push-action@v5
         with:
           context: .
           platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }} # Use the standard tags
+          push: true # Push is true for all events (main, tag, pr, dispatch)
+          tags: ${{ steps.meta.outputs.tags }} # Tags are determined by the 'meta' step based on event
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
