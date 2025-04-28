@@ -157,4 +157,91 @@ async def _sonarr_command_handler(room: MatrixRoom, message: RoomMessageText, bo
         except TypeError as te:
              # Catch the specific error if lookup_results wasn't iterable after all
              logger.error(f"Error iterating Sonarr lookup results: {te}. Results: {lookup_results}", exc_info=True)
+             await bot.api.send_text_message(room.room_id, "Error processing Sonarr results. Check logs.")
+             return
+        except Exception as e:
+             logger.error(f"Unexpected error processing Sonarr search results: {e}", exc_info=True)
+             await bot.api.send_text_message(room.room_id, "An unexpected error occurred processing search results.")
+             return
 
+
+        # --- Format Body ---
+        plain_body = ""; html_body = ""; search_term_esc = html.escape(search_term)
+        total_unadded_count = sum(1 for s in lookup_results if s.get('id', 0) == 0)
+
+        if show_unadded_only:
+            plain_body = f"Sonarr results for '{search_term}' (Not Added Only):\n\n"
+            html_body = f"<p>Sonarr results for '<i>{search_term_esc}</i>' (Not Added Only):</p>"
+            if unadded_plain:
+                 plain_body += "\n".join(unadded_plain)
+                 html_body += f"<ul>{''.join(unadded_html)}</ul>"
+                 if len(unadded_plain) < total_unadded_count:
+                     more = f"\n... and {total_unadded_count - len(unadded_plain)} more."
+                     plain_body += more
+                     html_body += f"<p>{html.escape(more).replace(chr(10), '<br>')}</p>" # Use chr(10) for newline
+            else:
+                 plain_body += "No unadded series found."; html_body += "<p>No unadded series found.</p>"
+        else:
+            plain_body = f"Sonarr results for '{search_term}':\n\n"
+            html_body = f"<p>Sonarr results for '<i>{search_term_esc}</i>':</p>"
+            plain_body += "-- Added --\n"; html_body += "<p><b>-- Added --</b></p>"
+            if added_plain: plain_body += "\n".join(added_plain); html_body += f"<ul>{''.join(added_html)}</ul>"
+            else: plain_body += "None found."; html_body += "<p>None found.</p>"
+
+            plain_body += "\n\n-- Not Added --\n"; html_body += "<p><b>-- Not Added --</b></p>"
+            if unadded_plain:
+                plain_body += "\n".join(unadded_plain)
+                html_body += f"<ul>{''.join(unadded_html)}</ul>"
+                remaining_unadded = total_unadded_count - len(unadded_plain)
+                if remaining_unadded > 0:
+                    more = f"\n... and {remaining_unadded} more."
+                    plain_body += more
+                    html_body += f"<p>{html.escape(more).replace(chr(10), '<br>')}</p>" # Use chr(10) for newline
+            else:
+                 total_added_count = sum(1 for s in lookup_results if s.get('id', 0) > 0)
+                 msg = ""
+                 if processed_count > 0 and total_added_count == processed_count: msg = "All matches are added."
+                 else: msg = "None found."
+                 plain_body += msg; html_body += f"<p>{msg}</p>"
+
+        # *** FIX: Send using room_send directly ***
+        try:
+            await bot.api.async_client.room_send(
+                room_id=room.room_id,
+                message_type="m.room.message",
+                content={
+                    "msgtype": "m.notice", # Use notice for bot messages
+                    "body": plain_body,
+                    "format": "org.matrix.custom.html",
+                    "formatted_body": html_body
+                }
+            )
+        except Exception as send_err:
+            logger.error(f"Failed to send Sonarr search results to room {room.room_id}: {send_err}", exc_info=True)
+            # Optionally try sending plain text as fallback
+            try:
+                await bot.api.send_text_message(room.room_id, plain_body)
+            except Exception as fallback_err:
+                 logger.error(f"Failed to send fallback plain text message for Sonarr search: {fallback_err}")
+        # *** END FIX ***
+
+# *** FIX: De-indent the register function ***
+# --- Register Command ---
+def register(bot: botlib.Bot, config_obj: config_module.MyConfig, prefix: str):
+    """Registers the sonarr command handler with the bot."""
+    # Create a closure to capture bot, config_obj, and prefix
+    async def handler_wrapper(room, message):
+        # Add a top-level try-except within the handler wrapper for safety
+        try:
+            await _sonarr_command_handler(room, message, bot, config_obj, prefix)
+        except Exception as handler_exc:
+            logger.error(f"Unhandled exception in _sonarr_command_handler: {handler_exc}", exc_info=True)
+            try:
+                # Attempt to notify the room about the internal error
+                await bot.api.send_text_message(room.room_id, "Sorry, an internal error occurred while processing the sonarr command.")
+            except Exception as report_exc:
+                logger.error(f"Failed to report internal handler error to room {room.room_id}: {report_exc}")
+
+    bot.listener.on_message_event(handler_wrapper)
+    logger.info("Sonarr command registered (handles search and info).")
+# *** END FIX ***
