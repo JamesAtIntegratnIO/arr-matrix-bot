@@ -46,7 +46,6 @@ async def _fetch_and_cache_tvdb_token(config: config_module.MyConfig) -> Optiona
 
 async def ensure_tvdb_token(config: config_module.MyConfig) -> Optional[str]:
     """Gets cached TVDB token or fetches a new one if needed."""
-    global _tvdb_token_cache
     if _tvdb_token_cache: return _tvdb_token_cache
     async with _tvdb_token_lock:
         if _tvdb_token_cache: return _tvdb_token_cache
