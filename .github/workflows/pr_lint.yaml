@@ -1,0 +1,42 @@
+# .github/workflows/lint.yml
+
+name: Lint Code
+
+# Run this workflow on pushes and pull requests targeting main branches
+on:
+  pull_request:
+    branches: [ main, master ] # Adjust if your main branch has a different name
+
+jobs:
+  lint:
+    name: Run linter
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11' # Choose the Python version your project uses
+          cache: 'pip' # Cache pip dependencies
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install flake8
+          # If your project has dependencies needed for linting (uncommon for flake8), install them:
+          # if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          # Or if you use development dependencies:
+          # if [ -f requirements-dev.txt ]; then pip install -r requirements-dev.txt; fi
+
+      - name: Lint with flake8
+        run: |
+          # stop the build if there are Python syntax errors or undefined names
+          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+          # exit-zero treats all errors as warnings. The GitHub editor is 127 chars wide
+          # Add other flake8 checks as needed, or remove flags to run all default checks
+          flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+          # Or simply run all default checks and fail on any error:
+          # flake8 .
