@@ -45,6 +45,7 @@ def load_config(path: str) -> MyConfig | None:
     """Loads configuration from a JSON file."""
     global creds, config_instance
     try:
+        logger.info(f"Attempting to load configuration from: {path}") # Added logging
         with open(path, 'r') as f: config_data = json.load(f)
         config_instance = MyConfig(config_data)
         creds = botlib.Creds(
@@ -58,4 +59,6 @@ def load_config(path: str) -> MyConfig | None:
     except Exception as e: logger.critical(f"Unexpected error loading config: {e}"); creds = None; config_instance = None; return None
 
 # Load config immediately on import
-load_config('config.json')
+# --- CHANGE THIS LINE ---
+load_config('/config/config.json')
+# --- END CHANGE ---
