@@ -42,6 +42,9 @@ async def handle_readyz(request: web.Request):
 async def main():
     webhook_runner = None
     site = None
+    # --- FLAG TO PREVENT MULTIPLE STARTUP REPORTS ---
+    startup_report_sent = False
+    # --- END FLAG ---
 
     # Check Config
     if not config_module.creds or not config_module.config_instance:
@@ -61,10 +64,21 @@ async def main():
 
     # --- STARTUP STATUS CHECK ROUTINE (Using target_room_id) ---
     async def run_startup_checks(_unused_arg):
+        # Use 'nonlocal' to modify the flag defined in the outer 'main' scope
+        nonlocal startup_report_sent
+
+        # --- Check if report already sent ---
+        if startup_report_sent:
+            logger.info("Startup routine triggered again, but report already sent. Skipping.")
+            return
+        # --- End Check ---
+
         logger.info("Startup routine initiated...")
-        # Use config.target_room_id instead of matrix_startup_room_id
+
         if not config.target_room_id:
             logger.warning("No target_room_id configured. Skipping startup status report.")
+            # --- Set flag even if skipped, to prevent future attempts ---
+            startup_report_sent = True
             return
 
         # Perform checks
@@ -72,20 +86,22 @@ async def main():
             status_results = await status_utils.check_all_services(bot, config)
             plain_report, html_report = status_utils.format_status_report(status_results)
 
-            # Use config.target_room_id for sending the message
             target_room = config.target_room_id
             logger.info(f"Sending startup status report to target_room_id: {target_room}")
             await matrix_utils.send_formatted_message(
                 bot, target_room, plain_report, html_report
             )
             logger.info("Startup status report sent successfully.")
+            # --- Set flag AFTER successful send ---
+            startup_report_sent = True
         except Exception as e:
             logger.error(f"Failed to perform or send startup status check: {e}", exc_info=True)
+            # --- Set flag even on error to prevent retries ---
+            startup_report_sent = True
             # Attempt to send an error message if possible
             try:
-                 # Use config.target_room_id for error reporting too
                  target_room = config.target_room_id
-                 if target_room: # Only try if target_room_id is set
+                 if target_room:
                      await matrix_utils.send_formatted_message(
                         bot, target_room,
                         "Error: Failed to perform startup status checks.",
@@ -105,18 +121,13 @@ async def main():
     # Setup Webhook Server
     webhook_app = web.Application()
     webhook_app['bot'] = bot
-    webhook_app['config'] = config # Pass loaded config to webhook handlers if needed
+    webhook_app['config'] = config
 
     # Add Routes
-    # Radarr Route (use handler from webhooks.py)
     webhook_app.router.add_post('/webhook/radarr', webhooks.handle_radarr_webhook)
     logger.info("Registered Radarr webhook route: /webhook/radarr (POST)")
-
-    # Sonarr Route (use handler from webhooks.py)
     webhook_app.router.add_post('/webhook/sonarr', webhooks.handle_sonarr_webhook)
     logger.info("Registered Sonarr webhook route: /webhook/sonarr (POST)")
-
-    # Health check routes
     webhook_app.router.add_get('/healthz', handle_healthz)
     logger.info("Registered liveness probe route: /healthz (GET)")
     webhook_app.router.add_get('/readyz', handle_readyz)
@@ -146,8 +157,6 @@ async def main():
     finally:
         # Cleanup
         logger.info("Initiating shutdown sequence...")
-
-        # Close Matrix client session first
         logger.info("Attempting to close Matrix client session...")
         if bot and bot.api and bot.api.async_client:
              try:
@@ -157,8 +166,6 @@ async def main():
                  logger.error(f"Error closing Matrix client session: {close_exc}")
         else:
              logger.warning("Matrix client session was not available for closing.")
-
-        # Cleanup webhook server runner
         logger.info("Cleaning up webhook server runner...")
         if webhook_runner:
             try:
@@ -168,8 +175,6 @@ async def main():
                 logger.error(f"Error cleaning up webhook runner: {runner_exc}")
         else:
             logger.warning("Webhook runner was not initialized, skipping cleanup.")
-
-        # Note: site.stop() is implicitly handled by runner.cleanup() for TCPSite
 
 if __name__ == "__main__":
     logger.info("Starting bot application...")
