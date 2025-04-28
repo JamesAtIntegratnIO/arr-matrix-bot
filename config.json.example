@@ -1,16 +1,18 @@
 {
-  "matrix": {
-    "homeserver": "https://your.matrix.server.com",
-    "user_id": "@your_bot_username:your.matrix.server.com",
-    "password": "YOUR_MATRIX_BOT_PASSWORD",
-    "room_alias": "#your-plex-room:your.matrix.server.com"
-  },
-  "tvdb": {
-    "api_key": "YOUR_THETVDB.COM_API_KEY_V4",
-    "base_url": "https://api4.thetvdb.com/v4"
-  },
-  "script": {
-    "homedir": "/config/.matrix-tautulli",
-    "disable_tls_verify": false
-  }
+  "matrix_homeserver": "YOUR_HOMESERVER_URL",
+  "matrix_user": "@your_bot:your_server.com",
+  "matrix_password": "YOUR_BOT_PASSWORD",
+  "target_room_id": "!YOUR_TARGET_ROOM:your_server.com",
+  "command_prefix": "!",
+  // --- Use localhost or actual IP accessible from this machine ---
+  "sonarr_url": "http://localhost:8989", // Or http://127.0.0.1:8989 or http://actual-ip:8989
+  "sonarr_api_key": "YOUR_SONARR_API_KEY",
+  "radarr_url": "http://localhost:7878", // Or http://127.0.0.1:7878 or http://actual-ip:7878
+  "radarr_api_key": "YOUR_RADARR_API_KEY",
+  // --------------------------------------------------------------
+  "tvdb_base_url": "https://api4.thetvdb.com/v4",
+  "tvdb_api_key": "YOUR_TVDB_API_KEY_HERE",
+  "verify_tls": true,
+  "webhook_host": "0.0.0.0", // Listen on all interfaces on this machine
+  "webhook_port": 9095       // The port the bot's webhook server will use
 }

@@ -140,6 +140,7 @@ dmypy.json
 *.yml
 # Except for example files:
 !*.example
+!.github/workflows/*.yaml
 
 # OS generated files
 .DS_Store
