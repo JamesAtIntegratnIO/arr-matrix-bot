@@ -11,17 +11,25 @@ logger = logging.getLogger(__name__)
 
 async def _status_command_handler(room: MatrixRoom, message: RoomMessageText, bot: botlib.Bot, config: config_module.MyConfig, prefix: str):
     """Handles the !status command."""
-    # Ignore messages from the bot itself
+    # --- Check 1: Ignore messages from the bot itself ---
     if message.sender == config.matrix_user:
         return
+
+    # --- Check 2: Ignore messages not from the target room ---
+    if config.target_room_id and room.room_id != config.target_room_id:
+        # Log for debugging if needed, but don't clutter normal operation
+        # logger.debug(f"Ignoring command from {message.sender} in room {room.room_id} (not target room)")
+        return
+    # --- End Room Check ---
 
     command_name = "status"
     full_command = prefix + command_name
 
-    # Check if the message is exactly the command
+    # --- Check 3: Check if the message is the command ---
     if not message.body.strip().lower() == full_command:
         return
 
+    # If we passed all checks, proceed with handling the command
     logger.info(f"Received status command from {message.sender} in room {room.room_id}")
 
     # Perform the checks using the utility function
@@ -31,7 +39,7 @@ async def _status_command_handler(room: MatrixRoom, message: RoomMessageText, bo
         logger.error(f"Unexpected error during status check triggered by command: {e}", exc_info=True)
         # Use matrix_utils to send error message
         await matrix_utils.send_formatted_message(
-            bot, room.room_id,
+            bot, room.room_id, # Send error back to the command room
             "Error: An unexpected error occurred while checking service status.",
             "<p>Error: An unexpected error occurred while checking service status.</p>"
         )
@@ -43,30 +51,23 @@ async def _status_command_handler(room: MatrixRoom, message: RoomMessageText, bo
     # Send the report back to the room where the command was issued using matrix_utils
     await matrix_utils.send_formatted_message(bot, room.room_id, plain_report, html_report)
 
-# --- THIS FUNCTION IS REQUIRED by commands/__init__.py ---
+# --- register function remains the same ---
 def register(bot: botlib.Bot, config_obj: config_module.MyConfig, prefix: str):
     """Registers the status command handler with the bot."""
-    # Create a closure to capture bot, config_obj, and prefix for the handler
     async def handler_wrapper(room, message):
         try:
-            # Call the actual command logic handler
             await _status_command_handler(room, message, bot, config_obj, prefix)
         except Exception as handler_exc:
-            # Log any unhandled exceptions from the command handler itself
             logger.error(f"Unhandled exception in _status_command_handler: {handler_exc}", exc_info=True)
-            # Try to report a generic error back to the room
             try:
-                # Use underlying client for simple text message on error
                 await bot.api.async_client.room_send(
                     room_id=room.room_id,
                     message_type="m.room.message",
                     content={ "msgtype": "m.notice", "body": "Sorry, an internal error occurred processing the status command."}
                 )
             except Exception as report_exc:
-                # Log if even reporting the error fails
                 logger.error(f"Failed to report internal status handler error to room {room.room_id}: {report_exc}")
 
-    # Register the wrapper function to listen for message events
     bot.listener.on_message_event(handler_wrapper)
-    logger.info(f"Status command '{prefix}status' registered.")
+    logger.info(f"Status command '{prefix}status' registered (target room: {config_obj.target_room_id or 'Any'}).")
 # --- END OF register FUNCTION ---
