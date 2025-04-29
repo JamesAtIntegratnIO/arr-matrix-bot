@@ -2,13 +2,30 @@ import logging
 import simplematrixbotlib as botlib
 from nio import RoomMessageText, MatrixRoom
 from .. import config as config_module # Use the imported config module
+from typing import Dict
 
 logger = logging.getLogger(__name__)
 
+COMMAND_NAME = "echo"
+
+def register_help(help_registry: Dict[str, Dict[str, str]], prefix: str):
+    """Registers the help text for the echo command."""
+    command_key = "echo" # Or use COMMAND_NAME if defined
+
+    # Define description and usage separately
+    description = "Echoes back the message you send."
+    usage = f"{prefix}{command_key} <message>"
+
+    # Assign a DICTIONARY to the registry
+    help_registry[command_key] = {
+        "description": description,
+        "usage": usage
+    }
+    logger.debug(f"Registered help for command: {command_key}")
+
 async def _echo_command_handler(room: MatrixRoom, message: RoomMessageText, bot: botlib.Bot, config: config_module.MyConfig, prefix: str):
     """Handles the actual echo command logic after filtering."""
-    command_name = "echo"
-    full_command = prefix + command_name
+    full_command = prefix + COMMAND_NAME
 
     # --- Add command filtering logic here ---
     if not message.body.startswith(full_command):

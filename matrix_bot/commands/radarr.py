@@ -12,10 +12,32 @@ logger = logging.getLogger(__name__)
 
 UNADDED_ONLY_FLAG = "--unadded"
 
-# _send_formatted_message removed
+COMMAND_NAME = "radarr"
 
-# --- Handler for 'info' Subcommand (Uses Generic Card Sender) ---
-# ... (remains the same, already calls matrix_utils.send_media_info_card)
+# --- Help Registration ---
+def register_help(help_registry: Dict[str, Dict[str, str]], prefix: str):
+    """Registers the help text for the radarr command."""
+    command_key = COMMAND_NAME # e.g., "radarr"
+
+    # Define description and usage separately
+    description = "Searches Radarr for movies or gets info about a specific movie."
+    usage = (
+        f"{prefix}{COMMAND_NAME} [search] [--unadded] <search_term>\n"
+        f"  Searches for movies. Use `--unadded` to show only results not yet in Radarr.\n\n"
+        f"{prefix}{COMMAND_NAME} info <tmdb_id>\n"
+        f"  Gets detailed info and poster for a specific movie using its TMDb ID."
+    )
+
+    # Assign a DICTIONARY to the registry
+    help_registry[command_key] = {
+        "description": description,
+        "usage": usage
+    }
+    logger.debug(f"Registered help for command: {command_key}")
+
+
+
+
 async def _handle_radarr_info(tmdb_id: int, room: MatrixRoom, bot: botlib.Bot, config: config_module.MyConfig):
     logger.info(f"Handling radarr info request for TMDb ID: {tmdb_id}")
     lookup_result = radarr_service.lookup_radarr_movie_by_tmdb(tmdb_id, config.radarr_url, config.radarr_api_key)
@@ -46,24 +68,24 @@ async def _radarr_command_handler(room: MatrixRoom, message: RoomMessageText, bo
     if message.sender == config.matrix_user:
         return
     # -------------------------------------------
-    command_name = "radarr"; full_command = prefix + command_name
+    full_command = prefix + COMMAND_NAME
     usage_string = f"""Usage:
-  `{prefix}{command_name} [search] [{UNADDED_ONLY_FLAG}] <search_term>`
-  `{prefix}{command_name} info <tmdb_id>`"""
+  `{prefix}{COMMAND_NAME} [search] [{UNADDED_ONLY_FLAG}] <search_term>`
+  `{prefix}{COMMAND_NAME} info <tmdb_id>`"""
     if not message.body.startswith(full_command): return
     args_part = message.body[len(full_command):].strip(); args = args_part.split()
     if not args: await bot.api.send_text_message(room.room_id, usage_string); return
 
     if args[0].lower() == "info":
         # ... (info handling remains the same, calls _handle_radarr_info) ...
-        if len(args) != 2: await bot.api.send_text_message(room.room_id, f"Usage: `{prefix}{command_name} info <tmdb_id>`"); return
+        if len(args) != 2: await bot.api.send_text_message(room.room_id, f"Usage: `{prefix}{COMMAND_NAME} info <tmdb_id>`"); return
         try:
             tmdb_id_arg = int(args[1]);
             if tmdb_id_arg <= 0: raise ValueError("TMDb ID must be positive.")
             if not config.radarr_url or not config.radarr_api_key: await bot.api.send_text_message(room.room_id, "Error: Radarr is not configured."); return
             await _handle_radarr_info(tmdb_id_arg, room, bot, config)
             return
-        except ValueError: await bot.api.send_text_message(room.room_id, f"Invalid TMDb ID. Usage: `{prefix}{command_name} info <tmdb_id>`"); return
+        except ValueError: await bot.api.send_text_message(room.room_id, f"Invalid TMDb ID. Usage: `{prefix}{COMMAND_NAME} info <tmdb_id>`"); return
 
     # --- Search Logic ---
     show_unadded_only = False; search_term_words = []; args_copy = list(args)

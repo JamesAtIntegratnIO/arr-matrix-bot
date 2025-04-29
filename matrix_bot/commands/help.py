@@ -4,65 +4,137 @@ from nio import RoomMessageText, MatrixRoom
 from .. import config as config_module
 from ..utils import matrix_utils
 import html
+from typing import Dict
 
 logger = logging.getLogger(__name__)
+COMMAND_NAME = "help" # Command name without prefix
 
-# HELP_COMMANDS dictionary remains the same
-HELP_COMMANDS = {
-    "help": { "description": "Shows this help message.", "usage": "help [command]" },
-    "sonarr": {
-        "description": "Searches Sonarr or gets info about a series.",
-        "usage": ("sonarr [search] [--unadded] <search_term>\n  `search`: Optional keyword.\n  `--unadded`: Show only results not yet in Sonarr.\n  `<search_term>`: The name of the series to search for.\n\nsonarr info <tvdb_id>\n  `info`: Get detailed info and poster for a specific series.\n  `<tvdb_id>`: The TVDb ID of the series.")
-    },
-    "radarr": {
-        "description": "Searches Radarr or gets info about a movie.",
-        "usage": ("radarr [search] [--unadded] <search_term>\n  `search`: Optional keyword.\n  `--unadded`: Show only results not yet in Radarr.\n  `<search_term>`: The name of the movie to search for.\n\nradarr info <tmdb_id>\n  `info`: Get detailed info and poster for a specific movie.\n  `<tmdb_id>`: The TMDb ID of the movie.")
-    },
-}
+# --- Help Registration for THIS command ---
+def register_help(help_registry: Dict[str, Dict[str, str]], prefix: str):
+    """Registers the help text for the 'help' command itself."""
+    command_key = COMMAND_NAME
+    help_registry[command_key] = {
+        "description": "Shows available commands or detailed help for a specific command.",
+        "usage": f"{prefix}{COMMAND_NAME}\n  Shows a list of all available commands.\n\n"
+                 f"{prefix}{COMMAND_NAME} <command>\n  Shows detailed usage for the specified <command>."
+    }
+    logger.debug(f"Registered help for command: {command_key}")
 
-
-async def _help_command_handler(room: MatrixRoom, message: RoomMessageText, bot: botlib.Bot, config: config_module.MyConfig, prefix: str):
-    """Handles the help command, sending formatted output."""
+# --- Main Command Handler ---
+async def _help_command_handler(
+    room: MatrixRoom,
+    message: RoomMessageText,
+    bot: botlib.Bot,
+    config: config_module.MyConfig,
+    prefix: str,
+    # --- Accepts the completed registry ---
+    help_registry: Dict[str, Dict[str, str]]
+):
+    """Handles the help command using the dynamically built help_registry."""
     # --- Ignore messages from the bot itself ---
     if message.sender == config.matrix_user:
         return
+    # --- Ignore messages not from the target room (if configured) ---
+    if config.target_room_id and room.room_id != config.target_room_id:
+        return
     # -------------------------------------------
 
-    command_name = "help"
-    full_command = prefix + command_name
+    full_command_prefix = prefix + COMMAND_NAME
 
-    if not message.body.startswith(full_command): return
+    # Only react if the message starts with the help command prefix
+    if not message.body.strip().lower().startswith(full_command_prefix):
+        return
 
-    # ... rest of the help handler logic remains the same ...
-    args_part = message.body[len(full_command):].strip(); args = args_part.split()
-    plain_body = ""; html_body = ""
+    logger.info(f"Received help command from {message.sender} in room {room.room_id}")
+
+    # Extract arguments after "!help"
+    args_part = message.body[len(full_command_prefix):].strip()
+    args = args_part.split()
+
+    plain_body = ""
+    html_body = ""
+
+    # Case 1: General help (!help)
     if not args:
-        plain_body = f"Available commands (prefix with '{prefix}'):\n\n"; html_body = f"Available commands (prefix with <code>{html.escape(prefix)}</code>):<br/><br/>"
-        for cmd, info in HELP_COMMANDS.items():
-            cmd_esc = html.escape(cmd); desc_esc = html.escape(info.get('description', 'No description available.'))
-            plain_body += f"{cmd}: {info.get('description', 'No description available.')}\n"; html_body += f"<strong>{cmd_esc}</strong>: {desc_esc}<br/>"
-        plain_body += f"\nType `{prefix}help <command>` for more details."; html_body += f"<br/>Type <code>{html.escape(prefix)}help &lt;command&gt;</code> for more details."
+        plain_body = f"Available commands (prefix with '{prefix}'):\n\n"
+        html_body = f"Available commands (prefix with <code>{html.escape(prefix)}</code>):<br/><br/><ul>"
+        # --- Use the passed-in help_registry ---
+        for cmd, info in sorted(help_registry.items()): # Sort for consistent order
+            cmd_esc = html.escape(cmd)
+            desc_esc = html.escape(info.get('description', 'No description available.'))
+            plain_body += f"{cmd}: {info.get('description', 'No description available.')}\n"
+            html_body += f"<li><strong>{cmd_esc}</strong>: {desc_esc}</li>"
+        plain_body += f"\nType `{prefix}help <command>` for more details."
+        html_body += f"</ul><br/>Type <code>{html.escape(prefix)}help &lt;command&gt;</code> for more details."
+
+    # Case 2: Specific command help (!help <command>)
     else:
         target_cmd = args[0].lower()
-        if target_cmd.startswith(prefix): target_cmd = target_cmd[len(prefix):]
-        if target_cmd in HELP_COMMANDS:
-            info = HELP_COMMANDS[target_cmd]; cmd_with_prefix = f"{prefix}{target_cmd}"; cmd_esc_prefix = html.escape(cmd_with_prefix); desc_esc = html.escape(info.get('description', 'N/A'))
-            plain_body = f"{cmd_with_prefix}\n\n"; html_body = f"<strong>{cmd_esc_prefix}</strong><br/><br/>"
-            plain_body += f"Description: {info.get('description', 'N/A')}\n\n"; html_body += f"Description: {desc_esc}<br/><br/>"
+        # Allow using the command with or without prefix in the help argument
+        if target_cmd.startswith(prefix):
+            target_cmd = target_cmd[len(prefix):]
+
+        # --- Use the passed-in help_registry ---
+        if target_cmd in help_registry:
+            info = help_registry[target_cmd]
+            cmd_with_prefix = f"{prefix}{target_cmd}"
+            cmd_esc_prefix = html.escape(cmd_with_prefix)
+            desc_esc = html.escape(info.get('description', 'N/A'))
+
+            plain_body = f"{cmd_with_prefix}\n\n"
+            html_body = f"<strong>{cmd_esc_prefix}</strong><br/><br/>"
+            plain_body += f"Description: {info.get('description', 'N/A')}\n\n"
+            html_body += f"Description: {desc_esc}<br/><br/>"
+
             usage = info.get('usage')
             if usage:
-                formatted_usage_plain = usage.replace(f"{target_cmd} ", f"{prefix}{target_cmd} "); formatted_usage_html = html.escape(formatted_usage_plain).replace("\n", "<br/>")
-                plain_body += f"Usage:\n{formatted_usage_plain}"; html_body += f"Usage:<br/><pre><code>{formatted_usage_html}</code></pre>"
-            else: plain_body += "Usage: N/A"; html_body += "Usage: N/A"
+                # Usage might already contain the prefix, or might assume it.
+                # Let's display it as provided in the registry.
+                usage_esc = html.escape(usage)
+                # Ensure newlines in usage are rendered correctly in HTML <pre>
+                usage_html_formatted = usage_esc.replace('\n', '<br/>')
+                plain_body += f"Usage:\n{usage}"
+                # Use <pre><code> for better formatting of multi-line usage
+                html_body += f"Usage:<br/><pre><code>{usage_html_formatted}</code></pre>"
+            else:
+                plain_body += "Usage: N/A"
+                html_body += "Usage: N/A"
         else:
-            cmd_esc = html.escape(target_cmd); prefix_esc = html.escape(prefix)
-            plain_body = f"Unknown command: '{target_cmd}'. Type `{prefix}help` to see available commands."; html_body = f"Unknown command: <code>{cmd_esc}</code>. Type <code>{prefix_esc}help</code> to see available commands."
+            cmd_esc = html.escape(target_cmd)
+            prefix_esc = html.escape(prefix)
+            plain_body = f"Unknown command: '{target_cmd}'. Type `{prefix}help` to see available commands."
+            html_body = f"Unknown command: <code>{cmd_esc}</code>. Type <code>{prefix_esc}help</code> to see available commands."
 
+    # Send the assembled message
     await matrix_utils.send_formatted_message(bot, room.room_id, plain_body, html_body)
 
 
-# register function remains the same
-def register(bot: botlib.Bot, config_obj: config_module.MyConfig, prefix: str):
-    async def handler_wrapper(room, message): await _help_command_handler(room, message, bot, config_obj, prefix)
+# --- Main Registration function for the command LISTENER ---
+def register(
+    bot: botlib.Bot,
+    config_obj: config_module.MyConfig,
+    prefix: str,
+    # --- Accepts the completed registry from commands/__init__.py ---
+    help_registry: Dict[str, Dict[str, str]]
+):
+    """Registers the help command listener."""
+    # Create a closure to capture bot, config_obj, prefix, AND the help_registry
+    async def handler_wrapper(room, message):
+        try:
+            # Pass the captured help_registry to the handler
+            await _help_command_handler(room, message, bot, config_obj, prefix, help_registry)
+        except Exception as handler_exc:
+            logger.error(f"Unhandled exception in _help_command_handler: {handler_exc}", exc_info=True)
+            # Try to report a generic error back to the room
+            try:
+                await bot.api.async_client.room_send(
+                    room_id=room.room_id,
+                    message_type="m.room.message",
+                    content={"msgtype": "m.notice", "body": f"Sorry, an internal error occurred processing the {prefix}help command."}
+                )
+            except Exception as report_exc:
+                logger.error(f"Failed to report internal help handler error to room {room.room_id}: {report_exc}")
+
+    # Register the wrapper function to listen for message events
     bot.listener.on_message_event(handler_wrapper)
-    logger.info("Help command registered.")
+    logger.info(f"Help command '{prefix}{COMMAND_NAME}' listener registered.")

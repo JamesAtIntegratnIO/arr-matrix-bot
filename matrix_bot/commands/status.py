@@ -6,8 +6,30 @@ from nio import RoomMessageText, MatrixRoom
 from .. import config as config_module
 # Import the status check utilities AND the message sending utility
 from ..utils import matrix_utils, status_utils
+from typing import Dict
 
 logger = logging.getLogger(__name__)
+
+COMMAND_NAME = "status"
+
+# --- Help Registration ---
+def register_help(help_registry: Dict[str, Dict[str, str]], prefix: str):
+    """Registers the help text for the status command."""
+    command_key = "status" # Or use COMMAND_NAME if defined
+
+    # Define description and usage separately
+    description = "Checks the connection status of the bot and integrated services."
+    usage = (
+        f"{prefix}{command_key}\n"
+        f"  Checks the status of all connected services (Matrix, Sonarr, Radarr, etc.).\n\n"
+    )
+
+    # Assign a DICTIONARY to the registry
+    help_registry[command_key] = {
+        "description": description,
+        "usage": usage
+    }
+    logger.debug(f"Registered help for command: {command_key}")
 
 async def _status_command_handler(room: MatrixRoom, message: RoomMessageText, bot: botlib.Bot, config: config_module.MyConfig, prefix: str):
     """Handles the !status command."""
@@ -22,8 +44,7 @@ async def _status_command_handler(room: MatrixRoom, message: RoomMessageText, bo
         return
     # --- End Room Check ---
 
-    command_name = "status"
-    full_command = prefix + command_name
+    full_command = prefix + COMMAND_NAME
 
     # --- Check 3: Check if the message is the command ---
     if not message.body.strip().lower() == full_command:

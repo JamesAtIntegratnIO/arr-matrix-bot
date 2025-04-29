@@ -11,6 +11,29 @@ from urllib.parse import urljoin
 logger = logging.getLogger(__name__)
 
 UNADDED_ONLY_FLAG = "--unadded"
+COMMAND_NAME = "sonarr"
+
+# --- Help Registration ---
+def register_help(help_registry: Dict[str, Dict[str, str]], prefix: str):
+    """Registers the help text for the sonarr command."""
+    command_key = COMMAND_NAME # e.g., "sonarr"
+
+    # Define description and usage separately
+    description = "Searches Sonarr for TV series or gets info about a specific series."
+    usage = (
+        f"{prefix}{COMMAND_NAME} [search] [--unadded] <search_term>\n"
+        f"  Searches for series. Use `--unadded` to show only results not yet in Sonarr.\n\n"
+        f"{prefix}{COMMAND_NAME} info <tvdb_id>\n"
+        f"  Gets detailed info and poster for a specific series using its TVDb ID."
+    )
+
+    # Assign a DICTIONARY to the registry
+    help_registry[command_key] = {
+        "description": description,
+        "usage": usage
+    }
+    logger.debug(f"Registered help for command: {command_key}")
+
 
 # --- Handler: Process 'info' Subcommand (Uses Generic Card Sender) ---
 async def _handle_sonarr_info(tvdb_id: int, room: MatrixRoom, bot: botlib.Bot, config: config_module.MyConfig):
@@ -64,22 +87,22 @@ async def _handle_sonarr_info(tvdb_id: int, room: MatrixRoom, bot: botlib.Bot, c
 async def _sonarr_command_handler(room: MatrixRoom, message: RoomMessageText, bot: botlib.Bot, config: config_module.MyConfig, prefix: str):
     if message.sender == config.matrix_user: return
 
-    command_name = "sonarr"; full_command = prefix + command_name
-    usage_string = f"""Usage:\n  `{prefix}{command_name} [search] [{UNADDED_ONLY_FLAG}] <search_term>`\n  `{prefix}{command_name} info <tvdb_id>`"""
+    full_command = prefix + COMMAND_NAME
+    usage_string = f"""Usage:\n  `{prefix}{COMMAND_NAME} [search] [{UNADDED_ONLY_FLAG}] <search_term>`\n  `{prefix}{COMMAND_NAME} info <tvdb_id>`"""
     if not message.body.startswith(full_command): return
     args_part = message.body[len(full_command):].strip(); args = args_part.split()
     if not args: await bot.api.send_text_message(room.room_id, usage_string); return
 
     # --- Handle 'info' subcommand ---
     if args[0].lower() == "info":
-        if len(args) != 2: await bot.api.send_text_message(room.room_id, f"Usage: `{prefix}{command_name} info <tvdb_id>`"); return
+        if len(args) != 2: await bot.api.send_text_message(room.room_id, f"Usage: `{prefix}{COMMAND_NAME} info <tvdb_id>`"); return
         try:
             tvdb_id_arg = int(args[1]);
             if tvdb_id_arg <= 0: raise ValueError("TVDb ID must be positive.")
             if not config.sonarr_url or not config.sonarr_api_key: await bot.api.send_text_message(room.room_id, "Error: Sonarr is not configured."); return
             await _handle_sonarr_info(tvdb_id_arg, room, bot, config) # Call the dedicated info handler
             return
-        except ValueError: await bot.api.send_text_message(room.room_id, f"Invalid TVDb ID. Usage: `{prefix}{command_name} info <tvdb_id>`"); return
+        except ValueError: await bot.api.send_text_message(room.room_id, f"Invalid TVDb ID. Usage: `{prefix}{COMMAND_NAME} info <tvdb_id>`"); return
         except Exception as e:
             logger.error(f"Error processing 'sonarr info {args[1]}': {e}", exc_info=True)
             await bot.api.send_text_message(room.room_id, "An unexpected error occurred while handling the info command.")
